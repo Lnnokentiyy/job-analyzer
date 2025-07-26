@@ -1,5 +1,8 @@
 import openai
 import streamlit as st
+import docx2txt
+import PyPDF2
+import re
 
 # Set your OpenAI API key using Streamlit Secrets
 openai.api_key = st.secrets["OPENAI_API_KEY"]
@@ -7,7 +10,7 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 # Function to get GPT response
 def get_gpt_response(prompt):
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",  # FREE tier / low-cost
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that compares resumes and job descriptions."},
             {"role": "user", "content": prompt}
@@ -54,34 +57,69 @@ if page == "Upload":
             st.success("✅ Job descriptions received")
             st.session_state.job_descriptions = jd_files or jd_text
 
+    # ---- Analyze Button ----
     if st.button("🔍 Analyze Fit"):
         if st.session_state.resume and st.session_state.job_descriptions:
             resume = st.session_state.resume
-            jd = st.session_state.job_descriptions
+            jds = st.session_state.job_descriptions
 
             # Extract resume text
             if hasattr(resume, 'read'):
-                resume_text = resume.read().decode("utf-8")
+                if resume.name.endswith(".pdf"):
+                    pdf_reader = PyPDF2.PdfReader(resume)
+                    resume_text = "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
+                elif resume.name.endswith(".docx"):
+                    resume_text = docx2txt.process(resume)
+                elif resume.name.endswith(".txt"):
+                    resume_text = resume.read().decode("utf-8")
+                else:
+                    resume_text = "Unsupported file format."
             else:
                 resume_text = resume
 
-            # Extract job description text
-            if isinstance(jd, list) and hasattr(jd[0], 'read'):
-                jd_text = jd[0].read().decode("utf-8")
+            resume_text = resume_text.strip()
+            ranked_results = []
+
+            # Analyze each JD
+            if isinstance(jds, list) and hasattr(jds[0], 'read'):
+                for jd_file in jds:
+                    if jd_file.name.endswith(".pdf"):
+                        pdf_reader = PyPDF2.PdfReader(jd_file)
+                        jd_text = "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
+                    elif jd_file.name.endswith(".docx"):
+                        jd_text = docx2txt.process(jd_file)
+                    elif jd_file.name.endswith(".txt"):
+                        jd_text = jd_file.read().decode("utf-8")
+                    else:
+                        jd_text = "Unsupported JD format."
+
+                    jd_text = jd_text.strip()
+                    prompt = f"""Compare this resume and job description. Rate the fit from 0 to 10. 
+Explain briefly why. Start your answer with: Score: X/10\n\nResume:\n{resume_text}\n\nJob Description:\n{jd_text}"""
+
+                    with st.spinner(f"Analyzing {jd_file.name}..."):
+                        result = get_gpt_response(prompt)
+
+                    score_match = re.search(r"Score:\s*(\d+)/10", result)
+                    score = int(score_match.group(1)) if score_match else 0
+
+                    ranked_results.append((jd_file.name, score, result))
             else:
-                jd_text = jd if isinstance(jd, str) else ""
-
-            # 🔧 Cleaner UX: strip trailing/leading whitespace
-            resume_text = resume_text.strip() if isinstance(resume_text, str) else resume_text
-            jd_text = jd_text.strip() if isinstance(jd_text, str) else jd_text
-
-            prompt = f"""Compare the following resume to the job description and give a fit summary:\n\nResume:\n{resume_text}\n\nJob Description:\n{jd_text}"""
-
-            with st.spinner("Analyzing..."):
+                jd_text = jds.strip() if isinstance(jds, str) else ""
+                prompt = f"""Compare this resume and job description. Rate the fit from 0 to 10. 
+Explain briefly why. Start your answer with: Score: X/10\n\nResume:\n{resume_text}\n\nJob Description:\n{jd_text}"""
                 result = get_gpt_response(prompt)
+                score_match = re.search(r"Score:\s*(\d+)/10", result)
+                score = int(score_match.group(1)) if score_match else 0
+                ranked_results.append(("Pasted JD", score, result))
 
-            st.subheader("✅ Match Summary")
-            st.write(result)
+            # Sort and display
+            ranked_results.sort(key=lambda x: x[1], reverse=True)
+
+            st.subheader("📊 Ranked Matches")
+            for i, (jd_name, score, explanation) in enumerate(ranked_results, 1):
+                st.markdown(f"### {i}. {jd_name} — Score: {score}/10")
+                st.write(explanation)
         else:
             st.warning("Please upload both a resume and at least one job description.")
 
