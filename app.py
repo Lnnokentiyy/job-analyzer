@@ -9,7 +9,12 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # Function to get GPT response
 def get_gpt_response(prompt):
-    response = openai.ChatCompletion.create(
+    from openai import OpenAI
+
+client = OpenAI()
+
+def get_gpt_response(prompt):
+    response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that compares resumes and job descriptions."},
