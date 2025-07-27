@@ -77,28 +77,22 @@ if page == "Upload":
             for i, link in enumerate(st.session_state.jd_links):
                 st.text_input(f"Link {i+1}", value=link, disabled=True)
 
-        # Handle list of new links in session state
-        if "new_links" not in st.session_state:
-            st.session_state.new_links = [""]  # start with one empty field
+        # Initialize link input fields
+        if "jd_links" not in st.session_state:
+            st.session_state.jd_links = []
+        if "current_link" not in st.session_state:
+            st.session_state.current_link = ""
 
-        # Render one input field per link
-        for i in range(len(st.session_state.new_links)):
-            st.session_state.new_links[i] = st.text_input(
-                f"Paste JD link #{i+1}",
-                value=st.session_state.new_links[i],
-                key=f"new_jd_link_{i}"
+        i = len(st.session_state.jd_links) + 1
+        st.session_state.current_link = st.text_input(
+            f"Paste JD link #{i}", value=st.session_state.current_link, key=f"jd_link_input_{i}"
         )
 
-        # Add another field
-        if st.button("➕ Add Another Link Field"):
-            st.session_state.new_links.append("")
-
-        # Submit all non-empty links
-        if st.button("✅ Submit All Links"):
-            new_valid_links = [link.strip() for link in st.session_state.new_links if link.strip()]
-            st.session_state.jd_links.extend(new_valid_links)
-            st.session_state.new_links = [""]  # reset after submission
-            st.rerun()
+        if st.button("Submit", key=f"submit_link_{i}"):
+            if st.session_state.current_link.strip():
+                st.session_state.jd_links.append(st.session_state.current_link.strip())
+                st.session_state.current_link = ""
+                st.rerun()
 
         # Combine uploaded and linked JDs
         job_descriptions.extend(st.session_state.jd_links)
