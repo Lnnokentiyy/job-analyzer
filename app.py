@@ -57,7 +57,7 @@ if page == "Upload":
     with col2:
         st.markdown("### 📝 Job Description(s)")
         jd_files = st.file_uploader("Upload 1–5 job descriptions", type=["pdf", "docx", "txt"], accept_multiple_files=True)
-                job_descriptions = []
+        job_descriptions = []
 
         # 1. Handle uploaded JD files
         if jd_files:
