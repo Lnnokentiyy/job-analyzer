@@ -81,6 +81,7 @@ if page == "Upload":
             "Paste new JD link here",
             key="new_jd_link",
             value=st.query_params.get("new_jd_link", "")
+        )
 
         if st.button("➕ Submit Link", key="submit_link_button"):
             if new_link.strip():
