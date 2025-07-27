@@ -80,9 +80,6 @@ if page == "Upload":
             if new_link.strip():
                 st.session_state.jd_links.append(new_link.strip())
                 st.experimental_rerun()
-                        if st.button("🗑️ Clear All Links"):
-            st.session_state.jd_links = []
-            st.experimental_rerun()
 
         job_descriptions.extend(st.session_state.jd_links)
 
