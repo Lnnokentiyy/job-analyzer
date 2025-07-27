@@ -5,8 +5,9 @@ import re
 
 def score_resume_to_jd(resume_text, jd_text):
     prompt = f"""
-Compare this resume and job description. Rate the fit from 0 to 10.
-Explain briefly why. Start your answer with: Score: X/10
+You are an expert recruiter. Rate how well this resume matches the job description on a scale from 0 to 10.
+Start your answer with: Score: X/10
+Then briefly explain the score with 2–7 bullet points
 
 Resume:
 {resume_text}
