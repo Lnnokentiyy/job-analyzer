@@ -80,14 +80,13 @@ if page == "Upload":
         new_link = st.text_input(
             "Paste new JD link here",
             key="new_jd_link",
-            value="" if st.experimental_get_query_params().get("clear") else None,
-        )
+            value=st.query_params.get("new_jd_link", "")
 
         if st.button("➕ Submit Link", key="submit_link_button"):
             if new_link.strip():
                 st.session_state.jd_links.append(new_link.strip())
-                st.experimental_set_query_params(clear="1")
-                st.experimental_rerun()
+                st.query_params["new_jd_link"] = ""
+                st.rerun()
 
         # Combine uploaded and linked JDs
         job_descriptions.extend(st.session_state.jd_links)
