@@ -1,30 +1,31 @@
-# utils/scoring.py
-
 import openai
-import re
 
 def score_resume_to_jd(resume_text, jd_text):
-    prompt = f"""
-You are an expert recruiter. Rate how well this resume matches the job description on a scale from 0 to 10.
-Start your answer with: Score: X/10
-Then briefly explain the score with 2–7 bullet points
-
-Resume:
-{resume_text}
-
-Job Description:
-{jd_text}
-"""
-    response = openai.ChatCompletion.create(
+    client = openai.OpenAI()
+    prompt = (
+        f"Given the following resume and job description, score how well the resume matches the job description "
+        f"on a scale of 1 to 10. Then explain your reasoning with 2-7 bullet points.\n\n"
+        f"Resume:\n{resume_text}\n\nJob Description:\n{jd_text}\n\n"
+        f"Respond in this format:\nScore: X/10\nReason: <your explanation>"
+    )
+    
+    response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that compares resumes and job descriptions."},
+            {"role": "system", "content": "You are a helpful assistant who evaluates resume-job fit."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.3,
-        max_tokens=800
+        max_tokens=800,
+        temperature=0.5
     )
-    content = response.choices[0].message.content
-    score_match = re.search(r"Score:\s*(\d+)/10", content)
-    score = int(score_match.group(1)) if score_match else 0
-    return score, content
+
+    result_text = response.choices[0].message.content.strip()
+    
+    if "Score:" in result_text:
+        try:
+            score_line, reason_line = result_text.split("\n", 1)
+            score = int(score_line.replace("Score:", "").replace("/10", "").strip())
+            return score, reason_line.strip()
+        except:
+            return 0, "Failed to parse score from model output."
+    return 0, "No score returned."
