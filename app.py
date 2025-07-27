@@ -78,12 +78,12 @@ if page == "Upload":
                 st.text_input(f"Link {i+1}", value=link, disabled=True)
 
         # New link input + submit
-        new_link = st.text_input("Paste new JD link here", key="new_jd_link_input")
-        if st.button("➕ Submit Link"):
-            if new_link.strip():
-                st.session_state.jd_links.append(new_link.strip())
-                st.session_state.new_jd_link_input = ""  # clear field
-                st.experimental_rerun()
+        new_link = st.text_input("Paste new JD link here", key="new_jd_link")
+if st.button("➕ Submit Link"):
+    if new_link.strip():
+        st.session_state.jd_links.append(new_link.strip())
+        st.session_state["new_jd_link"] = ""  # ✅ Clears the input safely
+        st.experimental_rerun()
 
         job_descriptions.extend(st.session_state.jd_links)
 
