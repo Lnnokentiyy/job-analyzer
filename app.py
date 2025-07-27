@@ -1,7 +1,7 @@
 import streamlit as st
 import openai
 from PyPDF2 import PdfReader
-from docx import Document
+from docx.api import Document
 from utils.scoring import score_resume_to_jd
 
 # Set OpenAI API Key from Streamlit Secrets
