@@ -1,28 +1,24 @@
 import streamlit as st
-import openai
+import os
 from PyPDF2 import PdfReader
 from docx import Document
+import openai
 from utils.scoring import score_resume_to_jd
 
-# Configure OpenAI API key securely from Streamlit secrets
+# Use Streamlit secrets for API key
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# Streamlit page setup
 st.set_page_config(page_title="Job Analyzer MVP", layout="wide")
 st.markdown("# 🌟 Job Analyzer: Match Your Resume to Any Job Description")
 
-# Sidebar navigation
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Upload", "Summary", "Detail View"])
-
-# --- File & Text Parsing Functions ---
+# === File & Text Parsing Functions ===
 def extract_text_from_pdf(file):
     reader = PdfReader(file)
-    return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+    return "\\n".join(page.extract_text() for page in reader.pages if page.extract_text())
 
 def extract_text_from_docx(file):
     doc = Document(file)
-    return "\n".join([p.text for p in doc.paragraphs if p.text])
+    return "\\n".join([p.text for p in doc.paragraphs if p.text])
 
 def read_text(file):
     if file.name.endswith(".pdf"):
@@ -34,81 +30,103 @@ def read_text(file):
     else:
         return ""
 
-# --- Page Logic ---
-if page == "Upload":
-    st.markdown("## 💾 Upload Your Resume & Job Descriptions")
+# === Session State Setup ===
+if "jd_files" not in st.session_state:
+    st.session_state.jd_files = []
+if "jd_links" not in st.session_state:
+    st.session_state.jd_links = []
+if "resume_text" not in st.session_state:
+    st.session_state.resume_text = ""
 
-    col1, col2 = st.columns(2)
+# === Upload Resume ===
+st.markdown("## 💾 Upload Your Resume")
+resume_file = st.file_uploader("Upload resume (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+if resume_file:
+    st.session_state.resume_text = read_text(resume_file)
+    st.success("✅ Resume uploaded successfully.")
 
-    with col1:
-        st.markdown("### 📄 Resume Upload")
-        resume_file = st.file_uploader("Upload resume (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
-        resume_textbox = st.text_area("Or paste resume text below:")
+# === Upload Job Descriptions ===
+st.markdown("## 📥 Upload Job Descriptions")
 
-        if resume_file:
-            resume_text = read_text(resume_file)
-            st.success("✅ Resume uploaded")
-        elif resume_textbox:
-            resume_text = resume_textbox.strip()
-            st.success("✅ Resume text received")
+upload_type = st.radio("Choose input method:", ["Upload File", "Paste Link"])
+
+if upload_type == "Upload File":
+    jd_file = st.file_uploader("Upload job description", key="jd_file", type=["pdf", "docx", "txt"])
+    if st.button("Submit JD File") and jd_file:
+        if len(st.session_state.jd_files) + len(st.session_state.jd_links) >= 5:
+            st.warning("⚠️ You can only add up to 5 job descriptions.")
         else:
-            resume_text = ""
+            st.session_state.jd_files.append(jd_file)
+elif upload_type == "Paste Link":
+    jd_link = st.text_input("Paste job description link here", key="jd_link")
+    if st.button("Submit JD Link") and jd_link:
+        if len(st.session_state.jd_files) + len(st.session_state.jd_links) >= 5:
+            st.warning("⚠️ You can only add up to 5 job descriptions.")
+        else:
+            st.session_state.jd_links.append(jd_link.strip())
 
+# === Display current JDs ===
+st.markdown("### ✅ Added Job Descriptions:")
+for i, file in enumerate(st.session_state.jd_files):
+    col1, col2 = st.columns([8,1])
+    with col1:
+        st.write(f"📄 File: {file.name}")
     with col2:
-        st.markdown("### 📝 Job Description(s)")
-        jd_files = st.file_uploader("Upload 1–5 job descriptions", type=["pdf", "docx", "txt"], accept_multiple_files=True)
-        jd_textbox = st.text_area(
-            "Or paste one or more JDs below (separate using ---):",
-            help="Example:\nJD1 description text\n---\nJD2 description text"
-        )
+        if st.button("❌", key=f"remove_file_{i}"):
+            st.session_state.jd_files.pop(i)
+            st.experimental_rerun()
 
+for i, link in enumerate(st.session_state.jd_links):
+    col1, col2 = st.columns([8,1])
+    with col1:
+        st.write(f"🔗 Link: {link}")
+    with col2:
+        if st.button("❌", key=f"remove_link_{i}"):
+            st.session_state.jd_links.pop(i)
+            st.experimental_rerun()
+
+total_jds = len(st.session_state.jd_files) + len(st.session_state.jd_links)
+st.markdown(f"**Total job descriptions received: {total_jds}**")
+
+# === Analyze Button ===
+if st.button("🔍 Analyze Fit"):
+    if not st.session_state.resume_text:
+        st.error("❌ Please upload your resume first.")
+    elif total_jds == 0:
+        st.error("❌ Please upload at least one job description.")
+    else:
         job_descriptions = []
 
-        if jd_files:
-            for jd in jd_files:
-                text = read_text(jd)
-                if text:
-                    job_descriptions.append(text)
+        # Extract text from uploaded files
+        for file in st.session_state.jd_files:
+            job_descriptions.append(read_text(file))
 
-        if jd_textbox:
-            jd_splits = [j.strip() for j in jd_textbox.strip().split("---") if j.strip()]
-            job_descriptions.extend(jd_splits)
+        # Fetch content from links (placeholder logic)
+        for link in st.session_state.jd_links:
+            job_descriptions.append(link)  # You can replace with real fetch logic
 
-        if job_descriptions:
-            if len(job_descriptions) > 5:
-                st.warning("⚠️ You can only upload or paste up to 5 job descriptions.")
-                job_descriptions = job_descriptions[:5]
-            else:
-                st.success(f"✅ {len(job_descriptions)} job description(s) received")
+        with st.spinner("Analyzing resume against job descriptions..."):
+            results = []
+            for i, jd in enumerate(job_descriptions):
+                score, rationale = score_resume_to_jd(st.session_state.resume_text, jd)
+                results.append((i + 1, jd[:60] + ("..." if len(jd) > 60 else ""), score, rationale))
 
-    if st.button("🔍 Analyze Fit"):
-        if not resume_text:
-            st.error("Please upload or paste your resume.")
-        elif not job_descriptions:
-            st.error("Please upload or paste at least one job description.")
-        else:
-            with st.spinner("Analyzing resume against job descriptions..."):
-                results = []
-                for i, jd in enumerate(job_descriptions):
-                    score, rationale = score_resume_to_jd(resume_text, jd)
-                    results.append((i + 1, jd[:60] + ("..." if len(jd) > 60 else ""), score, rationale))
+        st.markdown("## 📊 Ranked Matches")
+        results.sort(key=lambda x: x[2], reverse=True)
+        for idx, title, score, rationale in results:
+            st.markdown(f"**{idx}. {title} — Score: {score}/10**")
+            with st.expander("Why this score?"):
+                st.write(rationale)
 
-            # --- Output ---
-            st.markdown("## 📊 Ranked Matches")
-            results.sort(key=lambda x: x[2], reverse=True)
-            for idx, title, score, rationale in results:
-                st.markdown(f"**{idx}. {title} — Score: {score}/10**")
-                with st.expander("Why this score?"):
-                    st.write(rationale)
-
-elif page == "Summary":
-    st.markdown("## 📋 Summary View")
-    st.info("This feature is coming soon. You will be able to view key resume-JD alignment summaries here.")
-
-elif page == "Detail View":
-    st.markdown("## 🔎 Detail View")
-    st.info("This feature is coming soon. You will be able to compare resumes and job descriptions in detail here.")
-
-# Footer
 st.markdown("---")
-st.markdown("🧠 MVP in progress – built with 💗 by Inna using Streamlit + OpenAI")
+st.caption("🧠 MVP in progress – built with 💗 by Inna using Streamlit + OpenAI")
+"""
+
+# Save the code as a file to be accessed by the user
+path = "/mnt/data/app.py"
+with open(path, "w") as f:
+    f.write(app_py_code)
+
+path
+Result
+'/mnt/data/app.py'
