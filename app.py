@@ -57,22 +57,34 @@ if page == "Upload":
     with col2:
         st.markdown("### 📝 Job Description(s)")
         jd_files = st.file_uploader("Upload 1–5 job descriptions", type=["pdf", "docx", "txt"], accept_multiple_files=True)
-        jd_textbox = st.text_area(
-            "Or paste one or more JDs below (separate using ---):",
-            help="Example:\nJD1 description text\n---\nJD2 description text"
-        )
+                job_descriptions = []
 
-        job_descriptions = []
-
+        # 1. Handle uploaded JD files
         if jd_files:
             for jd in jd_files:
                 text = read_text(jd)
                 if text:
                     job_descriptions.append(text)
 
-        if jd_textbox:
-            jd_splits = [j.strip() for j in jd_textbox.strip().split("---") if j.strip()]
-            job_descriptions.extend(jd_splits)
+        # 2. Handle dynamic link fields
+        if "jd_links" not in st.session_state:
+            st.session_state.jd_links = []
+
+        st.markdown("#### 🔗 Or Add JD Links")
+
+        for i, link in enumerate(st.session_state.jd_links):
+            st.text_input(f"Link {i+1}", value=link, disabled=True)
+
+        new_link = st.text_input("Paste new JD link here", key="new_jd_link")
+        if st.button("➕ Submit Link"):
+            if new_link.strip():
+                st.session_state.jd_links.append(new_link.strip())
+                st.experimental_rerun()
+                        if st.button("🗑️ Clear All Links"):
+            st.session_state.jd_links = []
+            st.experimental_rerun()
+
+        job_descriptions.extend(st.session_state.jd_links)
 
         if job_descriptions:
             if len(job_descriptions) > 5:
