@@ -1,142 +1,96 @@
 import streamlit as st
-import openai
 import os
+from utils.scoring import score_resume_to_jd
+from utils.file_processing import extract_text_from_file
 import docx2txt
 import PyPDF2
+import tempfile
 import requests
 
-st.set_page_config(page_title="AI Job Analyzer", layout="wide")
+# Set page configuration
+st.set_page_config(page_title="Job Analyzer", layout="wide")
 
-# Sidebar navigation
+# Initialize session state for job descriptions
+if 'job_links' not in st.session_state:
+    st.session_state['job_links'] = []
+if 'job_files' not in st.session_state:
+    st.session_state['job_files'] = []
+
+# --- Sidebar Navigation ---
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["Upload", "Summary", "Detail View"])
 
-# Page title
+# --- Main Application Header ---
 st.title("🌟 Job Analyzer: Match Your Resume to Any Job Description")
+st.markdown("## 📂 Upload Your Resume & Job Descriptions")
 
-# Set OpenAI API key from Streamlit secrets
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# --- Resume Upload Section ---
+st.subheader("📄 Resume Upload")
 
-# Utilities for extracting text
-def extract_text_from_pdf(pdf_file):
-    pdf_reader = PyPDF2.PdfReader(pdf_file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
+resume_uploaded = False
+resume_text = ""
 
-def extract_text_from_docx(docx_file):
-    return docx2txt.process(docx_file)
+with st.container():
+    uploaded_resume = st.file_uploader("Upload resume (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+    submit_resume = st.button("Submit Resume")
+    if submit_resume and uploaded_resume:
+        resume_text = extract_text_from_file(uploaded_resume)
+        resume_uploaded = True
+        st.success("✅ Resume uploaded")
 
-def fetch_text_from_link(url):
-    try:
-        response = requests.get(url)
-        return response.text
-    except Exception as e:
-        return f"Error fetching from URL: {e}"
+# --- Job Description Upload Section ---
+st.subheader("📝 Job Description(s)")
 
-# AI scoring logic
-def score_resume_to_jd(resume_text, jd_text):
-    prompt = f\"\"\"
-You are a professional career coach. Score the resume against the job description.
-Return only a JSON object with:
-- "score" (0-100)
-- "rationale" (concise explanation in 2-3 bullet points)
+# Radio toggle for JD upload type
+jd_input_mode = st.radio("Upload job description via:", ["File Upload", "Link Upload"], horizontal=True)
 
-Resume:
-{resume_text}
+# JD File Upload
+if jd_input_mode == "File Upload":
+    uploaded_jd = st.file_uploader("Upload job description file", type=["pdf", "docx", "txt"], key="jd_file")
+    jd_file_submitted = st.button("Submit JD File")
+    if jd_file_submitted and uploaded_jd:
+        st.session_state.job_files.append(uploaded_jd)
+        st.success("✅ Job description file submitted")
 
-Job Description:
-{jd_text}
-\"\"\"
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=800
-    )
-    return response.choices[0].message.content
+# JD Link Upload
+if jd_input_mode == "Link Upload":
+    jd_link = st.text_input("Paste job description link", key="jd_link")
+    jd_link_submitted = st.button("Submit JD Link")
+    if jd_link_submitted and jd_link:
+        st.session_state.job_links.append(jd_link)
+        st.success("✅ Job description link submitted")
 
-# Initialize session state
-if "resume_text" not in st.session_state:
-    st.session_state.resume_text = ""
-if "jd_files" not in st.session_state:
-    st.session_state.jd_files = []
-if "jd_links" not in st.session_state:
-    st.session_state.jd_links = []
+# Show count of received JDs
+jd_total_count = len(st.session_state.job_links) + len(st.session_state.job_files)
+if jd_total_count:
+    st.success(f"✅ {jd_total_count} job description{'s' if jd_total_count > 1 else ''} received")
 
-# Upload Page
-if page == "Upload":
-    st.subheader("📄 Upload Your Resume & Job Descriptions")
+# Analyze Fit Button
+if st.button("🔍 Analyze Fit") and resume_uploaded and jd_total_count > 0:
+    st.subheader("🧠 Analysis Results")
+    for i, jd_file in enumerate(st.session_state.job_files):
+        jd_text = extract_text_from_file(jd_file)
+        score, rationale = score_resume_to_jd(resume_text, jd_text)
+        st.markdown(f"### 📄 JD File {i + 1}")
+        st.write(f"**Fit Score:** {score}")
+        st.write(rationale)
 
-    col1, col2 = st.columns(2)
+    for i, link in enumerate(st.session_state.job_links):
+        try:
+            response = requests.get(link)
+            jd_text = response.text
+            score, rationale = score_resume_to_jd(resume_text, jd_text)
+            st.markdown(f"### 🔗 JD Link {i + 1}")
+            st.write(f"**Fit Score:** {score}")
+            st.write(rationale)
+        except:
+            st.error(f"❌ Could not fetch content from: {link}")
 
-    with col1:
-        st.markdown("**Resume Upload**")
-        resume_file = st.file_uploader("Upload resume (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
-        if st.button("Submit Resume"):
-            if resume_file:
-                file_type = resume_file.name.split(".")[-1]
-                if file_type == "pdf":
-                    st.session_state.resume_text = extract_text_from_pdf(resume_file)
-                elif file_type == "docx":
-                    st.session_state.resume_text = extract_text_from_docx(resume_file)
-                else:
-                    st.session_state.resume_text = resume_file.read().decode("utf-8")
-                st.success("✅ Resume uploaded successfully!")
-
-    with col2:
-        st.markdown("**Job Description(s)**")
-        jd_upload_method = st.radio("Select input type:", ["File Upload", "Link Upload"])
-
-        if jd_upload_method == "File Upload":
-            jd_file = st.file_uploader("Upload job description file", type=["pdf", "docx", "txt"], key="jd_file")
-            if st.button("Submit JD File"):
-                if jd_file:
-                    ext = jd_file.name.split(".")[-1]
-                    if ext == "pdf":
-                        jd_text = extract_text_from_pdf(jd_file)
-                    elif ext == "docx":
-                        jd_text = extract_text_from_docx(jd_file)
-                    else:
-                        jd_text = jd_file.read().decode("utf-8")
-                    st.session_state.jd_files.append(jd_text)
-                    st.success(f"✅ JD file uploaded ({len(st.session_state.jd_files)} total)")
-
-        elif jd_upload_method == "Link Upload":
-            new_link = st.text_input("Paste job description link", key="jd_link")
-            if st.button("Submit JD Link"):
-                if new_link:
-                    jd_text = fetch_text_from_link(new_link)
-                    st.session_state.jd_links.append(jd_text)
-                    st.success(f"✅ JD link submitted ({len(st.session_state.jd_links)} total)")
-
-    if st.session_state.jd_files or st.session_state.jd_links:
-        total_jds = len(st.session_state.jd_files) + len(st.session_state.jd_links)
-        st.success(f"🎯 {total_jds} job description(s) received")
-
-    if st.button("🔍 Analyze Fit"):
-        resume = st.session_state.resume_text
-        if not resume:
-            st.warning("Please upload a resume.")
-        elif not (st.session_state.jd_files or st.session_state.jd_links):
-            st.warning("Please upload at least one job description.")
-        else:
-            st.subheader("Results")
-            for idx, jd in enumerate(st.session_state.jd_files + st.session_state.jd_links):
-                st.markdown(f"**Job Description {idx+1}**")
-                result = score_resume_to_jd(resume, jd)
-                st.json(result)
-
-# Future pages
-if page == "Summary":
-    st.write("Summary view coming soon...")
-
-if page == "Detail View":
-    st.write("Detailed view coming soon...")
-
-# Footer
+# --- Footer ---
 st.markdown("---")
-st.markdown("<p style='text-align: center;'>🚀 MVP in progress — made with ❤️ by Inna</p>", unsafe_allow_html=True)
-"""
+st.markdown("Made with ❤️ by Inna — MVP in progress")
+'''
 
-import ace_tools as tools; tools.display_text_to_user(name="Final app.py", text=app_code)
+# Save to file
+with open("/mnt/data/app.py", "w") as f:
+    f.write(app_py_code)
