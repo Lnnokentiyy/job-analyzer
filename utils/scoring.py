@@ -1,10 +1,12 @@
+# utils/scoring.py
+
 import openai
+import re
 
 def score_resume_to_jd(resume_text, jd_text):
     prompt = f"""
-You are a career coach and recruiter. Compare the following resume and job description. 
-Rate the fit from 0 to 10. Start your response with: Score: X/10
-Then explain why this resume is or isn't a good match.
+Compare this resume and job description. Rate the fit from 0 to 10.
+Explain briefly why. Start your answer with: Score: X/10
 
 Resume:
 {resume_text}
@@ -12,21 +14,16 @@ Resume:
 Job Description:
 {jd_text}
 """
-
     response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that compares resumes and job descriptions."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.3,
         max_tokens=800
     )
-
-    content = response["choices"][0]["message"]["content"]
-
-    try:
-        score_line, explanation = content.split("\n", 1)
-        score = int(score_line.strip().split(":")[1].split("/")[0])
-    except Exception:
-        score = 0
-        explanation = "⚠️ Couldn't parse score."
-
-    return score, explanation
+    content = response.choices[0].message.content
+    score_match = re.search(r"Score:\s*(\d+)/10", content)
+    score = int(score_match.group(1)) if score_match else 0
+    return score, content
