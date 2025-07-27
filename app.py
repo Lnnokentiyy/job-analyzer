@@ -72,13 +72,17 @@ if page == "Upload":
 
         st.markdown("#### 🔗 Or Add JD Links")
 
-        for i, link in enumerate(st.session_state.jd_links):
-            st.text_input(f"Link {i+1}", value=link, disabled=True)
+        # Display previously added links (read-only)
+        if st.session_state.jd_links:
+            for i, link in enumerate(st.session_state.jd_links):
+                st.text_input(f"Link {i+1}", value=link, disabled=True)
 
-        new_link = st.text_input("Paste new JD link here", key="new_jd_link")
+        # New link input + submit
+        new_link = st.text_input("Paste new JD link here", key="new_jd_link_input")
         if st.button("➕ Submit Link"):
             if new_link.strip():
                 st.session_state.jd_links.append(new_link.strip())
+                st.session_state.new_jd_link_input = ""  # clear field
                 st.experimental_rerun()
 
         job_descriptions.extend(st.session_state.jd_links)
