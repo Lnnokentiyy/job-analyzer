@@ -1,146 +1,96 @@
 import streamlit as st
-import docx2txt
-import PyPDF2
-from openai import OpenAI, RateLimitError, OpenAIError
-import re
+import openai
+from PyPDF2 import PdfReader
+from docx import Document
+from utils.scoring import score_resume_to_jd
 
-# ✅ NEW: Instantiate OpenAI Client using new SDK
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
-# ---- Helper: Extract Text ----
-def extract_text(file):
-    if file.name.endswith(".pdf"):
-        pdf_reader = PyPDF2.PdfReader(file)
-        return "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
-    elif file.name.endswith(".docx"):
-        return docx2txt.process(file)
-    elif file.name.endswith(".txt"):
-        return file.read().decode("utf-8")
-    else:
-        return "Unsupported file format."
-
-# ---- GPT Call ----
-def get_gpt_response(prompt):
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that compares resumes and job descriptions."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=1000
-        )
-        return response.choices[0].message.content
-    except RateLimitError:
-        return "⚠️ Rate limit hit. Please try again in a minute."
-    except OpenAIError as e:
-        return f"❌ API error: {e}"
+# Set OpenAI API Key from Streamlit Secrets
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # ---- App Config ----
-st.set_page_config(page_title="Job Analyzer", layout="wide")
-st.title("🎯 Job Analyzer: Match Your Resume to Any Job Description")
+st.set_page_config(page_title="Job Analyzer MVP", layout="wide")
+st.markdown("# 🌟 Job Analyzer: Match Your Resume to Any Job Description")
 
-# ---- Session State ----
-if 'resume' not in st.session_state:
-    st.session_state.resume = None
-if 'job_descriptions' not in st.session_state:
-    st.session_state.job_descriptions = []
+# ---- File/Text Parsing ----
+def extract_text_from_pdf(file):
+    reader = PdfReader(file)
+    return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
 
-# ---- Navigation ----
-page = st.sidebar.radio("Navigation", ["Upload", "Summary", "Detail View"])
+def extract_text_from_docx(file):
+    doc = Document(file)
+    return "\n".join([p.text for p in doc.paragraphs if p.text])
 
-# ---- Upload ----
-if page == "Upload":
-    st.header("1️⃣ Upload Your Resume & Job Descriptions")
-    col1, col2 = st.columns(2)
+def read_text(file):
+    if file.name.endswith(".pdf"):
+        return extract_text_from_pdf(file)
+    elif file.name.endswith(".docx"):
+        return extract_text_from_docx(file)
+    elif file.name.endswith(".txt"):
+        return file.read().decode("utf-8")
+    return ""
 
-    with col1:
-        st.subheader("📄 Resume Upload")
-        resume_file = st.file_uploader("Upload resume (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
-        resume_textbox = st.text_area("Or paste resume text below:")
+# ---- Resume & JD Upload ----
+st.markdown("## 💾 Upload Your Resume & Job Descriptions")
 
-        if resume_file or resume_textbox:
-            st.session_state.resume = resume_file or resume_textbox
-            st.success("✅ Resume received")
+col1, col2 = st.columns(2)
 
-    with col2:
-        st.subheader("📝 Job Description(s)")
-        jd_files = st.file_uploader("Upload 1–5 job descriptions", type=["pdf", "docx", "txt"], accept_multiple_files=True)
-        jd_textbox = st.text_area("Or paste one or more JDs below (separated by ---):")
+with col1:
+    st.markdown("### 📄 Resume Upload")
+    resume_file = st.file_uploader("Upload resume (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+    resume_textbox = st.text_area("Or paste resume text below:")
 
-        if jd_files or jd_textbox:
-            st.session_state.job_descriptions = jd_files or jd_textbox
+    resume_text = ""
+    if resume_file:
+        resume_text = read_text(resume_file)
+        st.success("✅ Resume uploaded")
+    elif resume_textbox:
+        resume_text = resume_textbox.strip()
+        st.success("✅ Resume text received")
+
+with col2:
+    st.markdown("### 📝 Job Description(s)")
+    jd_files = st.file_uploader("Upload 1–5 job descriptions", type=["pdf", "docx", "txt"], accept_multiple_files=True)
+    jd_textbox = st.text_area("Or paste one or more JDs below (separate using ---):")
+
+    job_descriptions = []
+
+    if jd_files:
+        for jd in jd_files:
+            job_descriptions.append(read_text(jd))
+
+    if jd_textbox:
+        jd_splits = [j.strip() for j in jd_textbox.strip().split("---") if j.strip()]
+        job_descriptions.extend(jd_splits)
+
+    if job_descriptions:
+        if len(job_descriptions) > 5:
+            st.warning("⚠️ Only up to 5 job descriptions are allowed.")
+            job_descriptions = job_descriptions[:5]
+        else:
             st.success("✅ Job descriptions received")
 
-    if st.button("🔍 Analyze Fit"):
-        resume = st.session_state.resume
-        jds = st.session_state.job_descriptions
+# ---- Run Analysis ----
+if st.button("🔍 Analyze Fit"):
+    if not resume_text:
+        st.error("Please upload or paste your resume.")
+    elif not job_descriptions:
+        st.error("Please upload or paste at least one job description.")
+    else:
+        with st.spinner("Analyzing resume against job descriptions..."):
+            results = []
+            for i, jd in enumerate(job_descriptions):
+                score, rationale = score_resume_to_jd(resume_text, jd)
+                snippet = jd[:60] + "..." if len(jd) > 60 else jd
+                results.append((i + 1, snippet, score, rationale))
 
-        # Extract resume text
-        resume_text = extract_text(resume) if hasattr(resume, "read") else resume
-        resume_text = resume_text.strip()
-
-        ranked_results = []
-
-        # MULTI JD COMPARISON
-        if isinstance(jds, list) and all(hasattr(jd, "read") for jd in jds):
-            for jd_file in jds:
-                jd_text = extract_text(jd_file).strip()
-                prompt = f"""Compare this resume and job description. Rate the fit from 0 to 10. 
-Start with: Score: X/10. Then explain briefly.
-
-Resume:
-{resume_text}
-
-Job Description:
-{jd_text}"""
-
-                with st.spinner(f"Analyzing {jd_file.name}..."):
-                    result = get_gpt_response(prompt)
-
-                match = re.search(r"Score:\s*(\d+)/10", result)
-                score = int(match.group(1)) if match else 0
-                ranked_results.append((jd_file.name, score, result))
-        else:
-            # Pasted JD(s)
-            jd_blocks = jds.split("---") if isinstance(jds, str) else []
-            for idx, jd_text in enumerate(jd_blocks):
-                jd_text = jd_text.strip()
-                prompt = f"""Compare this resume and job description. Rate the fit from 0 to 10. 
-Start with: Score: X/10. Then explain briefly.
-
-Resume:
-{resume_text}
-
-Job Description:
-{jd_text}"""
-
-                with st.spinner(f"Analyzing JD #{idx+1}..."):
-                    result = get_gpt_response(prompt)
-
-                match = re.search(r"Score:\s*(\d+)/10", result)
-                score = int(match.group(1)) if match else 0
-                ranked_results.append((f"Pasted JD #{idx+1}", score, result))
-
-        # Sort & display
-        ranked_results.sort(key=lambda x: x[1], reverse=True)
-        st.subheader("📊 Ranked Matches")
-
-        for i, (name, score, explanation) in enumerate(ranked_results, 1):
-            st.markdown(f"### {i}. {name} — Score: {score}/10")
-            st.write(explanation)
-
-# ---- Summary Page ----
-elif page == "Summary":
-    st.header("📊 Results Summary")
-    st.info("Summary view will include scorecards soon.")
-
-# ---- Detail View ----
-elif page == "Detail View":
-    st.header("🧠 Job Detail Feedback")
-    st.info("Detailed view coming soon.")
+        # ---- Display Results ----
+        results.sort(key=lambda x: x[2], reverse=True)
+        st.markdown("## 📊 Ranked Matches")
+        for idx, snippet, score, rationale in results:
+            st.markdown(f"**{idx}. JD Snippet: _{snippet}_ — Score: {score}/10**")
+            with st.expander("Why this score?"):
+                st.write(rationale)
 
 # ---- Footer ----
 st.markdown("---")
-st.caption("🚧 MVP in progress – built with ❤️ by Inna using Streamlit + OpenAI")
+st.markdown("🧠 MVP in progress – built with 💗 by Inna using Streamlit + OpenAI")
